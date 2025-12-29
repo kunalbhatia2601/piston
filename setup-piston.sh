@@ -103,7 +103,15 @@ EOF
 # 6. Create Piston directory
 echo "[6/7] Setting up Piston..."
 PISTON_DIR="/opt/piston"
+
+# Get the directory where this script is located (the cloned repo)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Create piston directory and copy repo files
 mkdir -p $PISTON_DIR
+echo "Copying repo files from $SCRIPT_DIR to $PISTON_DIR..."
+cp -r "$SCRIPT_DIR"/* $PISTON_DIR/ 2>/dev/null || true
+cp -r "$SCRIPT_DIR"/.* $PISTON_DIR/ 2>/dev/null || true
 cd $PISTON_DIR
 
 # Create data directory for packages
