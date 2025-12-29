@@ -117,7 +117,7 @@ version: '3.8'
 
 services:
     piston_api:
-        image: ghcr.io/engineer-man/piston
+        build: ./api
         container_name: piston_api_vps1
         restart: always
         privileged: true
@@ -154,7 +154,7 @@ version: '3.8'
 
 services:
     piston_api:
-        image: ghcr.io/engineer-man/piston
+        build: ./api
         container_name: piston_api_vps2
         restart: always
         privileged: true
@@ -188,7 +188,19 @@ fi
 
 # 7. Start Piston
 echo "[7/7] Starting Piston..."
-docker compose pull
+
+# Stop existing container if running
+CONTAINER_NAME="piston_api_$VPS_TYPE"
+echo "Stopping existing container '$CONTAINER_NAME' (if any)..."
+docker stop $CONTAINER_NAME 2>/dev/null || true
+docker rm $CONTAINER_NAME 2>/dev/null || true
+
+# Build fresh image with latest code
+echo "Building Piston image..."
+docker compose build --no-cache
+
+# Pull base image and start
+echo "Starting Piston container..."
 docker compose up -d
 
 # Wait for startup

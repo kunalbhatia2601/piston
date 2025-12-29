@@ -9,6 +9,7 @@ const globals = require('./globals');
 const job_states = {
     READY: Symbol('Ready to be primed'),
     PRIMED: Symbol('Primed and ready for execution'),
+    COMPILED: Symbol('Compiled and ready for multiple runs'),
     EXECUTED: Symbol('Executed and ready for cleanup'),
 };
 
@@ -322,11 +323,130 @@ class Job {
         };
     }
 
+    /**
+     * Compile only - for multi-test execution
+     * Returns the box with compiled code for reuse
+     */
+    async compileOnly(box) {
+        if (this.state !== job_states.PRIMED) {
+            throw new Error(
+                'Job must be in primed state, current state: ' +
+                this.state.toString()
+            );
+        }
+
+        this.logger.info(`Compiling job runtime=${this.runtime.toString()}`);
+
+        const code_files =
+            (this.runtime.language === 'file' && this.files) ||
+            this.files.filter(file => file.encoding == 'utf8');
+
+        let compile = null;
+        let compile_errored = false;
+
+        if (this.runtime.compiled) {
+            this.logger.debug('Compiling');
+            compile = await this.safe_call(
+                box,
+                'compile',
+                code_files.map(x => x.name),
+                this.timeouts.compile,
+                this.cpu_times.compile,
+                this.memory_limits.compile,
+                null
+            );
+            compile_errored = compile.code !== 0;
+
+            if (!compile_errored) {
+                // Move compiled files to a new box for running
+                const old_box_dir = box.dir;
+                this.compiled_box = await this.#create_isolate_box();
+                await fs.rename(
+                    path.join(old_box_dir, 'submission'),
+                    path.join(this.compiled_box.dir, 'submission')
+                );
+            }
+        } else {
+            // Interpreted language - just use the same box
+            this.compiled_box = box;
+        }
+
+        this.code_files = code_files;
+        this.state = compile_errored ? job_states.EXECUTED : job_states.COMPILED;
+
+        return {
+            compile,
+            success: !compile_errored,
+            language: this.runtime.language,
+            version: this.runtime.version.raw,
+        };
+    }
+
+    /**
+     * Run a single test case - for multi-test execution
+     * Must be called after compileOnly()
+     */
+    async runTest(stdin, timeout = null, cpu_time = null, memory_limit = null) {
+        if (this.state !== job_states.COMPILED) {
+            throw new Error(
+                'Job must be in compiled state for runTest, current state: ' +
+                this.state.toString()
+            );
+        }
+
+        // Create a fresh box for this test run
+        const run_box = await this.#create_isolate_box();
+
+        // Copy compiled submission to the new box
+        await fs.cp(
+            path.join(this.compiled_box.dir, 'submission'),
+            path.join(run_box.dir, 'submission'),
+            { recursive: true }
+        );
+
+        // Ensure stdin ends with newline
+        if (stdin && stdin.slice(-1) !== '\n') {
+            stdin += '\n';
+        }
+
+        this.logger.debug(`Running test with stdin length: ${stdin?.length || 0}`);
+
+        // Store original stdin and temporarily override
+        const original_stdin = this.stdin;
+        this.stdin = stdin || '';
+
+        const run = await this.safe_call(
+            run_box,
+            'run',
+            [this.code_files[0].name, ...this.args],
+            timeout || this.timeouts.run,
+            cpu_time || this.cpu_times.run,
+            memory_limit || this.memory_limits.run,
+            null
+        );
+
+        // Restore original stdin
+        this.stdin = original_stdin;
+
+        return {
+            stdout: run.stdout,
+            stderr: run.stderr,
+            output: run.output,
+            code: run.code,
+            signal: run.signal,
+            message: run.message,
+            status: run.status,
+            cpu_time: run.cpu_time,
+            wall_time: run.wall_time,
+            memory: run.memory,
+        };
+    }
+
     async execute(box, event_bus = null) {
         if (this.state !== job_states.PRIMED) {
             throw new Error(
                 'Job must be in primed state, current state: ' +
-                    this.state.toString()
+                this.state.toString()
             );
         }
 
@@ -343,22 +463,22 @@ class Job {
         const { emit_event_bus_result, emit_event_bus_stage } =
             event_bus === null
                 ? {
-                      emit_event_bus_result: () => {},
-                      emit_event_bus_stage: () => {},
-                  }
+                    emit_event_bus_result: () => { },
+                    emit_event_bus_stage: () => { },
+                }
                 : {
-                      emit_event_bus_result: (stage, result) => {
-                          const { error, code, signal } = result;
-                          event_bus.emit('exit', stage, {
-                              error,
-                              code,
-                              signal,
-                          });
-                      },
-                      emit_event_bus_stage: stage => {
-                          event_bus.emit('stage', stage);
-                      },
-                  };
+                    emit_event_bus_result: (stage, result) => {
+                        const { error, code, signal } = result;
+                        event_bus.emit('exit', stage, {
+                            error,
+                            code,
+                            signal,
+                        });
+                    },
+                    emit_event_bus_stage: stage => {
+                        event_bus.emit('stage', stage);
+                    },
+                };
 
         if (this.runtime.compiled) {
             this.logger.debug('Compiling');

@@ -234,6 +234,153 @@ router.ws('/connect', async (ws, req) => {
     }, 1000);
 });
 
+/**
+ * Multi-test WebSocket endpoint
+ * Supports: init -> compile once -> run_test (multiple) -> close
+ */
+router.ws('/judge', async (ws, req) => {
+    let job = null;
+    let box = null;
+    let testCount = 0;
+    let totalTime = 0;
+    let isCompiled = false;
+
+    const sendMessage = (type, data) => {
+        ws.send(JSON.stringify({ type, ...data }));
+    };
+
+    ws.on('message', async data => {
+        try {
+            const msg = JSON.parse(data);
+
+            switch (msg.type) {
+                case 'init':
+                    if (job !== null) {
+                        ws.close(4000, 'Already Initialized');
+                        return;
+                    }
+
+                    // Validate and create job
+                    try {
+                        job = await get_job(msg);
+                    } catch (error) {
+                        sendMessage('error', { message: error.message });
+                        ws.close(4002, 'Notified Error');
+                        return;
+                    }
+
+                    try {
+                        // Prime the job (create sandbox, copy files)
+                        box = await job.prime();
+
+                        // Send ready message
+                        sendMessage('ready', {
+                            language: job.runtime.language,
+                            version: job.runtime.version.raw,
+                            compiled: job.runtime.compiled
+                        });
+
+                        // Compile if needed
+                        const compileResult = await job.compileOnly(box);
+                        isCompiled = compileResult.success;
+
+                        sendMessage('compiled', {
+                            success: compileResult.success,
+                            time: compileResult.compile?.wall_time || 0,
+                            stdout: compileResult.compile?.stdout || '',
+                            stderr: compileResult.compile?.stderr || '',
+                            error: compileResult.compile?.message || null
+                        });
+
+                        if (!isCompiled) {
+                            await job.cleanup();
+                            ws.close(4006, 'Compilation Failed');
+                        }
+                    } catch (error) {
+                        logger.error(`Error initializing job: ${job?.uuid}:\n${error}`);
+                        sendMessage('error', { message: error.message });
+                        if (job) await job.cleanup();
+                        ws.close(4002, 'Notified Error');
+                    }
+                    break;
+
+                case 'run_test':
+                    if (job === null) {
+                        ws.close(4003, 'Not yet initialized');
+                        return;
+                    }
+
+                    if (!isCompiled) {
+                        sendMessage('error', { message: 'Code did not compile successfully' });
+                        return;
+                    }
+
+                    try {
+                        const testResult = await job.runTest(
+                            msg.stdin || '',
+                            msg.timeout || null,
+                            msg.cpu_time || null,
+                            msg.memory_limit || null
+                        );
+
+                        testCount++;
+                        totalTime += testResult.wall_time || 0;
+
+                        sendMessage('result', {
+                            test_id: msg.test_id || testCount,
+                            stdout: testResult.stdout,
+                            stderr: testResult.stderr,
+                            code: testResult.code,
+                            signal: testResult.signal,
+                            message: testResult.message,
+                            status: testResult.status,
+                            time: testResult.wall_time,
+                            cpu_time: testResult.cpu_time,
+                            memory: testResult.memory
+                        });
+                    } catch (error) {
+                        logger.error(`Error running test: ${error.message}`);
+                        sendMessage('error', {
+                            test_id: msg.test_id || testCount + 1,
+                            message: error.message
+                        });
+                    }
+                    break;
+
+                case 'close':
+                    sendMessage('done', {
+                        total_tests: testCount,
+                        total_time: totalTime
+                    });
+                    if (job) await job.cleanup();
+                    ws.close(4999, 'Session Completed');
+                    break;
+
+                default:
+                    sendMessage('error', { message: `Unknown message type: ${msg.type}` });
+            }
+        } catch (error) {
+            sendMessage('error', { message: error.message });
+            ws.close(4002, 'Notified Error');
+        }
+    });
+
+    ws.on('close', async () => {
+        if (job) {
+            try {
+                await job.cleanup();
+            } catch (e) {
+                logger.error(`Error cleaning up job on close: ${e.message}`);
+            }
+        }
+    });
+
+    // Timeout if not initialized within 5 seconds
+    setTimeout(() => {
+        if (job === null) ws.close(4001, 'Initialization Timeout');
+    }, 5000);
+});
+
 router.post('/execute', async (req, res) => {
     let job;
     try {
