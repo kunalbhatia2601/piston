@@ -34,7 +34,43 @@ fi
 
 # 3. Install Docker Compose
 echo "[3/7] Installing Docker Compose..."
-apt install docker-compose-plugin -y
+
+# Method 1: Try installing from Docker's official repo
+if ! docker compose version &> /dev/null; then
+    # Add Docker's official GPG key and repository
+    apt-get install -y ca-certificates curl gnupg
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    apt-get update
+    apt-get install -y docker-compose-plugin || {
+        # Method 2: Fallback to standalone docker-compose
+        echo "Installing standalone docker-compose..."
+        curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
+        chmod +x /usr/local/bin/docker-compose
+        ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+    }
+else
+    echo "Docker Compose already installed"
+fi
+
+# Verify installation
+if docker compose version &> /dev/null; then
+    echo "Docker Compose (plugin) installed ✓"
+elif docker-compose version &> /dev/null; then
+    echo "Docker Compose (standalone) installed ✓"
+    # Create alias for compatibility
+    echo 'alias docker compose="docker-compose"' >> ~/.bashrc
+else
+    echo "ERROR: Docker Compose installation failed!"
+    exit 1
+fi
 
 # 4. Verify cgroup v2
 echo "[4/7] Verifying cgroup v2..."
