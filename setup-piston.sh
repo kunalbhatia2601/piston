@@ -98,7 +98,7 @@ services:
             - PISTON_RUN_CPU_TIME=6000
             - PISTON_COMPILE_MEMORY_LIMIT=536870912
             - PISTON_RUN_MEMORY_LIMIT=268435456
-            - PISTON_MAX_CONCURRENT_JOBS=8
+            - PISTON_MAX_CONCURRENT_JOBS=24
             - PISTON_MAX_PROCESS_COUNT=128
             - PISTON_MAX_OPEN_FILES=4096
             - PISTON_MAX_FILE_SIZE=20000000
@@ -108,8 +108,8 @@ services:
         deploy:
             resources:
                 limits:
-                    memory: 16G
-                    cpus: '4'
+                    memory: 24G
+                    cpus: '6'
 EOF
 else
     echo "Configuring for VPS2 (dedicated server - 16 concurrent jobs)..."
@@ -135,7 +135,7 @@ services:
             - PISTON_RUN_CPU_TIME=6000
             - PISTON_COMPILE_MEMORY_LIMIT=536870912
             - PISTON_RUN_MEMORY_LIMIT=268435456
-            - PISTON_MAX_CONCURRENT_JOBS=16
+            - PISTON_MAX_CONCURRENT_JOBS=28
             - PISTON_MAX_PROCESS_COUNT=128
             - PISTON_MAX_OPEN_FILES=4096
             - PISTON_MAX_FILE_SIZE=20000000
