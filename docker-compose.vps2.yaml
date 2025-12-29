@@ -6,7 +6,7 @@ version: '3.8'
 services:
     piston_api:
         image: ghcr.io/engineer-man/piston
-        container_name: piston_api
+        container_name: piston_api_vps2
         restart: always
         privileged: true
         ports:
