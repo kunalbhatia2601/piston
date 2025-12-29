@@ -10,12 +10,14 @@ services:
         restart: always
         privileged: true
         ports:
-            - "8867:2000"
+            - "8867:9000"
         volumes:
             - ./data/piston/packages:/piston/packages
         tmpfs:
             - /tmp:exec
         environment:
+            # Bind Address
+            - PISTON_BIND_ADDRESS=0.0.0.0:9000
             # Timeouts (milliseconds)
             - PISTON_COMPILE_TIMEOUT=30000
             - PISTON_RUN_TIMEOUT=6000

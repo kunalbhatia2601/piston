@@ -33,4 +33,4 @@ RUN npm install
 COPY ./src ./src
 
 CMD ["/piston_api/src/docker-entrypoint.sh"]
-EXPOSE 2000/tcp
+EXPOSE 9000/tcp

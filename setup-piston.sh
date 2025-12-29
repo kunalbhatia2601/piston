@@ -130,12 +130,13 @@ services:
         restart: always
         privileged: true
         ports:
-            - "8867:2000"
+            - "8867:9000"
         volumes:
             - ./data/piston/packages:/piston/packages
         tmpfs:
             - /tmp:exec
         environment:
+            - PISTON_BIND_ADDRESS=0.0.0.0:9000
             - PISTON_COMPILE_TIMEOUT=30000
             - PISTON_RUN_TIMEOUT=6000
             - PISTON_COMPILE_CPU_TIME=30000
@@ -167,12 +168,13 @@ services:
         restart: always
         privileged: true
         ports:
-            - "8867:2000"
+            - "8867:9000"
         volumes:
             - ./data/piston/packages:/piston/packages
         tmpfs:
             - /tmp:exec
         environment:
+            - PISTON_BIND_ADDRESS=0.0.0.0:9000
             - PISTON_COMPILE_TIMEOUT=30000
             - PISTON_RUN_TIMEOUT=6000
             - PISTON_COMPILE_CPU_TIME=30000
