@@ -1,0 +1,63 @@
+version: '3.8'
+
+# VPS 1 Configuration (Shared Server - runs alongside other apps)
+# Allocated: 16GB RAM, 4 CPU cores, 8 concurrent jobs
+
+services:
+    piston_api:
+        image: ghcr.io/engineer-man/piston
+        container_name: piston_api
+        restart: always
+        privileged: true
+        ports:
+            - "8867:2000"
+        volumes:
+            - ./data/piston/packages:/piston/packages
+        tmpfs:
+            - /tmp:exec
+        environment:
+            # Timeouts (milliseconds)
+            - PISTON_COMPILE_TIMEOUT=30000
+            - PISTON_RUN_TIMEOUT=6000
+            - PISTON_COMPILE_CPU_TIME=30000
+            - PISTON_RUN_CPU_TIME=6000
+            
+            # Memory Limits (bytes)
+            - PISTON_COMPILE_MEMORY_LIMIT=536870912
+            - PISTON_RUN_MEMORY_LIMIT=268435456
+            
+            # Concurrency - REDUCED for shared server
+            - PISTON_MAX_CONCURRENT_JOBS=8
+            
+            # Process/File Limits
+            - PISTON_MAX_PROCESS_COUNT=128
+            - PISTON_MAX_OPEN_FILES=4096
+            - PISTON_MAX_FILE_SIZE=20000000
+            
+            # Output Buffer (64KB)
+            - PISTON_OUTPUT_MAX_SIZE=65536
+            
+            # Security
+            - PISTON_DISABLE_NETWORKING=true
+            
+            # Logging
+            - PISTON_LOG_LEVEL=INFO
+            
+            # Per-language overrides for heavy languages
+            - PISTON_LIMIT_OVERRIDES={"java":{"compile_memory_limit":1073741824,"run_memory_limit":536870912,"compile_timeout":60000},"rust":{"compile_memory_limit":1073741824,"compile_timeout":60000},"c++":{"compile_memory_limit":1073741824,"max_process_count":256}}
+        
+        deploy:
+            resources:
+                limits:
+                    memory: 16G
+                    cpus: '4'
+                reservations:
+                    memory: 8G
+                    cpus: '2'
+        
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:2000/"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
