@@ -138,9 +138,9 @@ services:
         environment:
             - PISTON_BIND_ADDRESS=0.0.0.0:9000
             - PISTON_COMPILE_TIMEOUT=30000
-            - PISTON_RUN_TIMEOUT=6000
+            - PISTON_RUN_TIMEOUT=15000
             - PISTON_COMPILE_CPU_TIME=30000
-            - PISTON_RUN_CPU_TIME=6000
+            - PISTON_RUN_CPU_TIME=15000
             - PISTON_COMPILE_MEMORY_LIMIT=536870912
             - PISTON_RUN_MEMORY_LIMIT=536870912
             - PISTON_MAX_CONCURRENT_JOBS=64
@@ -150,6 +150,7 @@ services:
             - PISTON_OUTPUT_MAX_SIZE=65536
             - PISTON_DISABLE_NETWORKING=true
             - PISTON_LOG_LEVEL=INFO
+            - PISTON_LIMIT_OVERRIDES={"java":{"run_timeout":30000,"compile_timeout":60000,"run_cpu_time":30000},"c++":{"compile_timeout":60000},"rust":{"compile_timeout":60000}}
         deploy:
             resources:
                 limits:
