@@ -383,8 +383,9 @@ class Job {
     }
 
     /**
-     * Run a single test case - for multi-test execution
+     * Run a single test case - for multi-test execution (OPTIMIZED)
      * Must be called after compileOnly()
+     * Reuses the same compiled box for all tests (faster but less isolated)
      */
     async runTest(stdin, timeout = null, cpu_time = null, memory_limit = null) {
         if (this.state !== job_states.COMPILED) {
@@ -394,15 +395,8 @@ class Job {
             );
         }
 
-        // Create a fresh box for this test run
-        const run_box = await this.#create_isolate_box();
-
-        // Copy compiled submission to the new box
-        await fs.cp(
-            path.join(this.compiled_box.dir, 'submission'),
-            path.join(run_box.dir, 'submission'),
-            { recursive: true }
-        );
+        // OPTIMIZATION: Reuse compiled_box directly instead of creating new box
+        // This eliminates ~150-200ms overhead per test
 
         // Ensure stdin ends with newline
         if (stdin && stdin.slice(-1) !== '\n') {
@@ -416,7 +410,7 @@ class Job {
         this.stdin = stdin || '';
 
         const run = await this.safe_call(
-            run_box,
+            this.compiled_box,  // Reuse the same box
             'run',
             [this.code_files[0].name, ...this.args],
             timeout || this.timeouts.run,
