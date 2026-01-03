@@ -347,6 +347,48 @@ router.ws('/judge', async (ws, req) => {
                     }
                     break;
 
+                case 'run_batch':
+                    if (job === null) {
+                        ws.close(4003, 'Not yet initialized');
+                        return;
+                    }
+
+                    if (!isCompiled) {
+                        sendMessage('error', { message: 'Code did not compile successfully' });
+                        return;
+                    }
+
+                    if (!msg.test_cases || !Array.isArray(msg.test_cases) || msg.test_cases.length === 0) {
+                        sendMessage('error', { message: 'test_cases array is required for run_batch' });
+                        return;
+                    }
+
+                    try {
+                        const batchResult = await job.runBatched(
+                            msg.test_cases,
+                            msg.timeout || null,
+                            msg.cpu_time || null,
+                            msg.memory_limit || null
+                        );
+
+                        testCount = msg.test_cases.length;
+                        totalTime = batchResult.total_time || 0;
+
+                        sendMessage('batch_result', {
+                            results: batchResult.results,
+                            total_tests: testCount,
+                            total_time: batchResult.total_time,
+                            total_cpu_time: batchResult.total_cpu_time,
+                            memory: batchResult.memory,
+                            success: batchResult.success,
+                            stderr: batchResult.stderr
+                        });
+                    } catch (error) {
+                        logger.error(`Error running batch: ${error.message}`);
+                        sendMessage('error', { message: error.message });
+                    }
+                    break;
+
                 case 'close':
                     sendMessage('done', {
                         total_tests: testCount,

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+# Compile all Java source files
+# Rename files to .java extension and compile
+
+for f in "$@"; do
+    # Only rename if doesn't already have .java extension
+    if [[ "$f" != *.java ]]; then
+        mv "$f" "$f.java"
+    fi
+done
+
+# Compile all Java files in the current directory
+javac *.java

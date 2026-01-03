@@ -1,0 +1,8 @@
+{
+    "language": "java",
+    "version": "21.0.9",
+    "aliases": [
+        "jdk",
+        "jdk21"
+    ]
+}

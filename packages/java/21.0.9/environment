@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# Set up Java environment variables
+export PATH=$PWD/bin:$PATH
+export JAVA_HOME=$PWD

@@ -436,6 +436,266 @@ class Job {
         };
     }
 
+    /**
+     * Run all test cases in a single process (BATCHED - eliminates startup overhead)
+     * Must be called after compileOnly()
+     * 
+     * @param {Array} testCases - Array of {stdin: string, test_id: number}
+     * @returns {Object} - {results: Array, total_time: number, success: boolean}
+     */
+    async runBatched(testCases, timeout = null, cpu_time = null, memory_limit = null) {
+        if (this.state !== job_states.COMPILED) {
+            throw new Error(
+                'Job must be in compiled state for runBatched, current state: ' +
+                this.state.toString()
+            );
+        }
+
+        const DELIMITER = '---PISTON_TEST_DELIMITER_X7K9M---';
+        const language = this.runtime.language;
+
+        // Combine all test inputs
+        const testCount = testCases.length;
+        const combinedStdin = testCount + '\n' + testCases.map(tc => tc.stdin).join('');
+
+        // Create wrapper file based on language
+        const wrapperCode = this.#getWrapperCode(language, DELIMITER);
+
+        if (!wrapperCode) {
+            throw new Error(`Batched mode not supported for language: ${language}`);
+        }
+
+        // Write wrapper file to submission directory
+        const wrapperFileName = this.#getWrapperFileName(language);
+        const wrapperPath = path.join(this.compiled_box.dir, 'submission', wrapperFileName);
+        await fs.writeFile(wrapperPath, wrapperCode);
+
+        this.logger.debug(`Running batched with ${testCount} tests`);
+
+        // Store original stdin and override
+        const original_stdin = this.stdin;
+        this.stdin = combinedStdin;
+
+        // Calculate extended timeout (base timeout * number of tests)
+        const extendedTimeout = (timeout || this.timeouts.run) * testCount;
+        const extendedCpuTime = (cpu_time || this.cpu_times.run) * testCount;
+
+        const run = await this.safe_call(
+            this.compiled_box,
+            'run',
+            [wrapperFileName, ...this.args],
+            extendedTimeout,
+            extendedCpuTime,
+            memory_limit || this.memory_limits.run,
+            null
+        );
+
+        // Restore original stdin
+        this.stdin = original_stdin;
+
+        // Parse output by delimiter
+        const outputs = run.stdout.split(DELIMITER);
+        const results = testCases.map((tc, i) => ({
+            test_id: tc.test_id,
+            stdout: (outputs[i] || '').trim(),
+            stderr: i === testCases.length - 1 ? run.stderr : '',
+            code: run.code,
+            signal: run.signal,
+        }));
+
+        return {
+            results,
+            total_time: run.wall_time,
+            total_cpu_time: run.cpu_time,
+            memory: run.memory,
+            success: run.code === 0,
+            stderr: run.stderr,
+            message: run.message,
+            status: run.status,
+        };
+    }
+
+    #getWrapperFileName(language) {
+        const fileNames = {
+            'python': '_wrapper.py',
+            'python3': '_wrapper.py',
+            'java': 'Wrapper.java',
+            'c': '_wrapper.c',
+            'c++': '_wrapper.cpp',
+            'cpp': '_wrapper.cpp',
+            'javascript': '_wrapper.js',
+            'node': '_wrapper.js',
+        };
+        return fileNames[language] || '_wrapper.txt';
+    }
+
+    #getWrapperCode(language, delimiter) {
+        const mainFile = this.code_files[0].name;
+
+        const wrappers = {
+            // Python wrapper
+            'python': `
+import sys
+exec(open("${mainFile}").read(), {'__name__': '__wrapper__'})
+`,
+            'python3': `
+import sys
+exec(open("${mainFile}").read(), {'__name__': '__wrapper__'})
+`,
+
+            // Python with loop (proper wrapper)
+            'python_batched': `
+import sys
+from io import StringIO
+
+# Read the original code
+with open("${mainFile}") as f:
+    user_code = f.read()
+
+# Read test count
+T = int(input())
+
+for _ in range(T):
+    # Execute user code
+    exec(user_code)
+    print("${delimiter}")
+    sys.stdout.flush()
+`,
+
+            // Java wrapper
+            'java': `
+import java.io.*;
+import java.util.*;
+
+public class Wrapper {
+    public static void main(String[] args) throws Exception {
+        Scanner sc = new Scanner(System.in);
+        int T = sc.nextInt();
+        if (sc.hasNextLine()) sc.nextLine(); // consume newline
+        
+        for (int t = 0; t < T; t++) {
+            Main.main(new String[]{});
+            System.out.println("${delimiter}");
+            System.out.flush();
+        }
+    }
+}
+`,
+
+            // C wrapper
+            'c': `
+#include <stdio.h>
+#include <stdlib.h>
+
+extern int main_user();
+
+int main() {
+    int T;
+    scanf("%d", &T);
+    
+    for (int t = 0; t < T; t++) {
+        main_user();
+        printf("${delimiter}\\n");
+        fflush(stdout);
+    }
+    return 0;
+}
+`,
+
+            // C++ wrapper
+            'c++': `
+#include <iostream>
+#include <cstdio>
+using namespace std;
+
+extern int main_user();
+
+int main() {
+    int T;
+    cin >> T;
+    
+    for (int t = 0; t < T; t++) {
+        main_user();
+        cout << "${delimiter}" << endl;
+        cout.flush();
+    }
+    return 0;
+}
+`,
+            'cpp': `
+#include <iostream>
+#include <cstdio>
+using namespace std;
+
+extern int main_user();
+
+int main() {
+    int T;
+    cin >> T;
+    
+    for (int t = 0; t < T; t++) {
+        main_user();
+        cout << "${delimiter}" << endl;
+        cout.flush();
+    }
+    return 0;
+}
+`,
+
+            // JavaScript wrapper
+            'javascript': `
+const fs = require('fs');
+const vm = require('vm');
+const readline = require('readline');
+
+const userCode = fs.readFileSync('${mainFile}', 'utf8');
+const lines = fs.readFileSync('/dev/stdin', 'utf8').split('\\n');
+let lineIndex = 0;
+
+const T = parseInt(lines[lineIndex++]);
+
+for (let t = 0; t < T; t++) {
+    // Create mock readline
+    const mockInput = [];
+    // Execute user code
+    try {
+        eval(userCode);
+    } catch (e) {
+        console.error(e.message);
+    }
+    console.log("${delimiter}");
+}
+`,
+            'node': `
+const fs = require('fs');
+const vm = require('vm');
+const readline = require('readline');
+
+const userCode = fs.readFileSync('${mainFile}', 'utf8');
+const lines = fs.readFileSync('/dev/stdin', 'utf8').split('\\n');
+let lineIndex = 0;
+
+const T = parseInt(lines[lineIndex++]);
+
+for (let t = 0; t < T; t++) {
+    try {
+        eval(userCode);
+    } catch (e) {
+        console.error(e.message);
+    }
+    console.log("${delimiter}");
+}
+`,
+        };
+
+        // For Python, use the batched version
+        if (language === 'python' || language === 'python3') {
+            return wrappers['python_batched'];
+        }
+
+        return wrappers[language] || null;
+    }
+
     async execute(box, event_bus = null) {
         if (this.state !== job_states.PRIMED) {
             throw new Error(

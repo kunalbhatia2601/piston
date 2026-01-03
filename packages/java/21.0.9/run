@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# Run the Main class (compiled Java)
+# The compile step has already created .class files
+java Main "$@"
